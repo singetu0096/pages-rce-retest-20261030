@@ -1,0 +1,21 @@
+name: Pages SourceDir command-substitution classifier
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 make_command_substitution_classifier_tar.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pages-retest-command-substitution.tar
+          path: pages-retest-command-substitution.tar
+          archive: false
+          if-no-files-found: error
+          retention-days: 1
