@@ -1,0 +1,67 @@
+name: Legacy artifact compatibility probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create fixed target
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          printf '%s\n' 'LEGACY_ARTIFACT_COMPAT_V1' > target/index.html
+
+      - name: Upload target with Results artifact service
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-pages-target
+          path: target/index.html
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Query legacy pipelines listing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p legacy-probe
+          endpoint="${ACTIONS_RUNTIME_URL}_apis/pipelines/workflows/${GITHUB_RUN_ID}/artifacts?api-version=6.0-preview"
+          status=000
+          count=0
+          matched=0
+          for attempt in 1 2 3 4 5; do
+            status="$(curl --silent --show-error \
+              --output legacy-probe/response.json \
+              --write-out '%{http_code}' \
+              --header 'Accept: application/json' \
+              --header "Authorization: Bearer ${ACTIONS_RUNTIME_TOKEN}" \
+              "$endpoint")"
+            if [[ "$status" == 200 ]]; then
+              count="$(jq '(.value // []) | length' legacy-probe/response.json)"
+              matched="$(jq '[.value[]? | select(.name == "legacy-pages-target")] | length' legacy-probe/response.json)"
+              if [[ "$matched" != 0 ]]; then
+                break
+              fi
+            fi
+            sleep 3
+          done
+
+          jq -r '.value[]? | select(.name == "legacy-pages-target") | .url' \
+            legacy-probe/response.json > legacy-probe/legacy-url.txt
+          printf 'LEGACY_ARTIFACT_COMPAT_V1 status=%s count=%s matched=%s\n' \
+            "$status" "$count" "$matched" | tee legacy-probe/summary.txt
+          rm -f legacy-probe/response.json
+
+      - name: Upload bounded result
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-compat-result
+          path: legacy-probe/
+          retention-days: 1
+          if-no-files-found: error
